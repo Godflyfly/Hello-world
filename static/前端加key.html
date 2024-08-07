@@ -1,1 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>赛涛智能助手</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f0f0;
+            background-image: linear-gradient(135deg, #f5f7fa 25%, transparent 25%), linear-gradient(225deg, #f5f7fa 25%, transparent 25%), linear-gradient(45deg, #f5f7fa 25%, transparent 25%), linear-gradient(315deg, #f5f7fa 25%, #f0f0f0 25%);
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            background-size: 20px 20px;
+            color: #333;
+            padding: 20px;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
 
+        h1 {
+            color: #5a76f7;
+            margin-bottom: 10px;
+        }
+
+        #timer {
+            background-color: #ffeb3b;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+            margin-top: 20px;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .outputBox {
+            background-color: white;
+            border: 1px solid #ccc;
+            padding: 10px;
+            width: 80%;
+            font-size: 16px;
+            line-height: 1.6;
+            height: 450px; /* 将长度扩大3倍 */
+            overflow: auto;
+            margin: 10px 0;
+        }
+
+        #realTimeText, #inferenceResult {
+            white-space: pre-wrap; /* 保留换行 */
+        }
+
+        #realTimeText {
+            overflow-y: auto;
+        }
+
+        #status {
+            font-style: italic;
+            color: #555;
+        }
+
+        .button-container {
+            display: flex;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>赛涛智能助手</h1>
+    <div id="timer"></div>
+    <div>
+        <input type="text" id="keyInput" placeholder="请输入激活码" />
+        <button id="activateButton">激活</button>
+    </div>
+    <div id="realTimeText" class="outputBox" contenteditable="true"></div> <!-- contenteditable="true" 使用户能够编辑内容 -->
+    <div class="button-container">
+        <button id="sendButton" disabled>发送给模型</button>
+        <button id="clearButton">清空文本框</button>
+    </div>
+    <div id="inferenceResult" class="outputBox"></div>
+    <p id="status"></p>
+
+    <script>
+        let mediaRecorder;
+        let websocket;
+        let transcribedText = "";
+        let countdownInterval;
+
+        const sendButton = document.getElementById('sendButton');
+        const clearButton = document.getElementById('clearButton');
+        const status = document.getElementById('status');
+        const realTimeText = document.getElementById('realTimeText');
+        const inferenceResult = document.getElementById('inferenceResult');
+        const keyInput = document.getElementById('keyInput');
+        const activateButton = document.getElementById('activateButton');
+        const timer = document.getElementById('timer');
+
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start();
+
+            // 连接WebSocket
+            websocket = new WebSocket("ws://localhost:8000/ws");
+            websocket.onmessage = (event) => {
+                const message = event.data;
+                if (message.startsWith("INFERENCE:")) {
+                    inferenceResult.textContent += message.replace("INFERENCE:", "");
+                } else {
+                    transcribedText += message;
+                    realTimeText.textContent = transcribedText;
+                }
+            };
+        }
+
+        activateButton.addEventListener('click', async () => {
+            const key = keyInput.value.trim();
+            if (!key) {
+                status.textContent = "请输入激活码。";
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:8000/activate_key/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ key: key }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`激活失败: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                status.textContent = `激活成功！有效时长：${data.duration} 秒，失效时间：${data.expire_at}`;
+                sendButton.disabled = false;
+
+                // 开始录音
+                await startRecording();
+
+                // 设置计时器
+                const expireAt = new Date(data.expire_at);
+                clearInterval(countdownInterval);  // 清除之前的计时器（如果有）
+                countdownInterval = setInterval(() => {
+                    const now = new Date();
+                    const timeLeft = expireAt - now;
+
+                    if (timeLeft <= 0) {
+                        clearInterval(countdownInterval);
+                        sendButton.disabled = true;
+                        status.textContent = "激活码已失效，请重新激活。";
+                        timer.textContent = "";
+                    } else {
+                        const secondsLeft = Math.floor(timeLeft / 1000);
+                        timer.textContent = `剩余时间：${secondsLeft} 秒`;
+                    }
+                }, 1000);
+            } catch (error) {
+                status.textContent = `激活失败: ${error.message}`;
+            }
+        });
+
+        sendButton.addEventListener('click', async () => {
+            status.textContent = "正在发送文本到服务器...";
+            inferenceResult.textContent = "";  // 清空模型回答内容
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                const editedText = realTimeText.textContent;
+                websocket.send(editedText);
+                // 清空上次记录的语音内容
+                transcribedText = "";
+                realTimeText.textContent = "";
+            } else {
+                status.textContent = "WebSocket连接未建立。";
+            }
+        });
+
+        clearButton.addEventListener('click', () => {
+            realTimeText.textContent = "";  // 清空文本框内容
+            transcribedText = "";  // 清空存储的文本
+        });
+
+        // 页面加载时开始录音
+        // window.onload = startRecording;
+    </script>
+</body>
+</html>
