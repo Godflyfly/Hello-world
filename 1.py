@@ -16,9 +16,9 @@ from openai import OpenAI
 from uuid import uuid4
 
 # 实时语音转文本配置
-URL = "wss://nls-gatewahai.aliyuncs.com/ws/v1"
-TOKEN = "f42a1857d85"  # 替换为你的token
-APPKEY = "JNbplVCH"  # 替换为你的appkey
+URL = "wss://nls-gateway-cn-shanghai.aliyuncs.com/ws/v1"
+TOKEN = "f42a185d8bae4622a9aae50128857d85"  # 替换为你的token
+APPKEY = "JNbplHCzbWk4PVCH"  # 替换为你的appkey
 
 # 配置麦克风参数
 CHUNK = 640  # 每次读取的音频块大小
@@ -28,8 +28,8 @@ RATE = 16000  # 采样率
 
 # 大模型推理服务配置
 client = OpenAI(
-    api_key = "9ec5a9f8b209fe4",
-    base_url = "https://arkm/api/v3",
+    api_key = "9ec5a9f8-d11c-4571-8394-bd196b209fe4",
+    base_url = "https://ark.cn-beijing.volces.com/api/v3",
 )
 
 # FastAPI应用
